@@ -34,31 +34,62 @@ PORT = 8000  # Default port
 
 app = WeApRous()
 
-@app.route('/login', methods=['POST'])
-def login(headers="guest", body="anonymous"):
-    """
-    Handle user login via POST request.
+active_peers = []
 
-    This route simulates a login process and prints the provided headers and body
-    to the console.
+@app.route('/submit-info', methods=['POST'])
+def handle_submit_info(headers, body):
+    global active_peers
+    print(f"[Tracker] Received /submit-info, body: {body}")
+    
+    try:
+        # 1. Parse body 
+        peer_data = json.loads(body)
+        username = peer_data.get('username')
+        ip = peer_data.get('ip')
+        port = peer_data.get('port')
 
-    :param headers (str): The request headers or user identifier.
-    :param body (str): The request body or login payload.
-    """
-    print "[SampleApp] Logging in {} to {}".format(headers, body)
+        if not username or not ip or not port:
+            raise ValueError("'username', 'ip', and 'port' are required")
 
-@app.route('/hello', methods=['PUT'])
-def hello(headers, body):
-    """
-    Handle greeting via PUT request.
+        new_peer = {'username': username, 'ip': ip, 'port': int(port)}
 
-    This route prints a greeting message to the console using the provided headers
-    and body.
+        # 2. Check and update (Tracker update)
+        found = False
+        for i, peer in enumerate(active_peers):
+            if peer['username'] == username:
+                active_peers[i] = new_peer
+                found = True
+                break
+        if not found:
+            active_peers.append(new_peer) 
 
-    :param headers (str): The request headers or user identifier.
-    :param body (str): The request body or message payload.
-    """
-    print "[SampleApp] ['PUT'] Hello in {} to {}".format(headers, body)
+        print(f"[Tracker] Peer registered/updated: {new_peer}")
+        print(f"[Tracker] Current active peers: {active_peers}")
+        
+        # 3. Return response (status, body_string)
+        response_body = json.dumps({"status": "success", "message": f"{username} registered"})
+        return '200 OK', response_body
+
+    except Exception as e:
+        print(f"[Tracker] Error /submit-info: {e}")
+        response_body = json.dumps({"status": "error", "message": str(e)})
+        return '400 Bad Request', response_body
+
+@app.route('/get-list', methods=['GET'])
+def handle_get_list(headers, body):
+    global active_peers
+    print(f"[Tracker] Request /get-list. Returning {len(active_peers)} peers.")
+    
+    try:
+        # Return peer list as JSON
+        response_body = json.dumps({"status": "success", "peers": active_peers})
+        
+        # Return response (status, body_string)
+        return '200 OK', response_body
+    except Exception as e:
+        print(f"[Tracker] Error /get-list: {e}")
+        response_body = json.dumps({"status": "error", "message": str(e)})
+        return '500 Internal Server Error', response_body
 
 if __name__ == "__main__":
     # Parse command-line arguments to configure server IP and port

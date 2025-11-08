@@ -94,7 +94,7 @@ class Request():
 
         # Prepare the request line from the request header
         self.method, self.path, self.version = self.extract_request_line(request)
-        print("[Request] {} path {} version {}".format(self.method, self.path, self.version))
+        print(f"[Request] {self.method} path {self.path} version {self.version}")
 
         #
         # @bksysnet Preapring the webapp hook with WeApRous instance
@@ -116,6 +116,17 @@ class Request():
             #
             #  TODO: implement the cookie function here
             #        by parsing the header            #
+
+        # Tách phần body ra khỏi request thô
+        try:
+            header_end_index = request.find('\r\n\r\n')
+            if header_end_index > 0:
+                self.body = request[header_end_index + 4:]
+            else:
+                self.body = ""
+        except Exception:
+            self.body = ""
+        # --- KẾT THÚC ---    
 
         return
 

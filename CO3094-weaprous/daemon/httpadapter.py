@@ -106,19 +106,43 @@ class HttpAdapter:
         msg = conn.recv(1024).decode()
         req.prepare(msg, routes)
 
+        response_to_send = None # Biến lưu trữ response cuối cùng
+
         # Handle request hook
         if req.hook:
-            print("[HttpAdapter] hook in route-path METHOD {} PATH {}".format(req.hook._route_path,req.hook._route_methods))
-            req.hook(headers = "bksysnet",body = "get in touch")
+            print(f"[HttpAdapter] hook in route-path METHOD {req.method} PATH {req.path}")
             #
             # TODO: handle for App hook here
+            try:
+                status, body_content = req.hook(headers=req.headers, body=req.body)
+                
+                http_response = f"HTTP/1.1 {status}\r\n"
+                http_response += "Content-Type: application/json\r\n"
+                http_response += f"Content-Length: {len(body_content)}\r\n"
+                http_response += "Connection: close\r\n"
+                http_response += "\r\n"
+                http_response += body_content
+                
+                response_to_send = http_response.encode('utf-8')
+
+            except Exception as e:
+                print(f"[HttpAdapter] Error during hook execution: {e}")
+                error_body = '{"status": "error", "message": "Internal Server Error"}'
+                http_response = f"HTTP/1.1 500 Internal Server Error\r\n"
+                http_response += "Content-Type: application/json\r\n"
+                http_response += f"Content-Length: {len(error_body)}\r\n"
+                http_response += "Connection: close\r\n"
+                http_response += "\r\n"
+                http_response += error_body
+                response_to_send = http_response.encode('utf-8')
+
+        else:
+            print("[HttpAdapter] No hook, serving static file.")
+            response_to_send = resp.build_response(req)      
             #
 
-        # Build response
-        response = resp.build_response(req)
-
-        #print(response)
-        conn.sendall(response)
+        #print(response_to_send)
+        conn.sendall(response_to_send)
         conn.close()
 
     @property
