@@ -1,7 +1,7 @@
 # Example usage
 import json
 
-from daemon import 
+from daemon import weaprous
 
 
 def create_sampleapp():

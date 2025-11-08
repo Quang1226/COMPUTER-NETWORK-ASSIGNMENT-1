@@ -1,20 +1,20 @@
-
 import sys
 import os
 
 from daemon.weaprous import WeApRous
-import requests # Gửi HTTP request (đăng ký tracker, gửi P2P).
-import threading #Chạy thread nền (heartbeat, discovery).
-import time #Delay (sleep).
-import uuid #Tạo UUID cho peer.
-import json #Parse/encode dữ liệu JSON từ body request.
+from daemon.response import Response
+import requests
+import threading
+import time
+import uuid
+import json
 
 # ============================================================
 # P2P PEER CLASS
 # ============================================================
 
 class P2PChatPeer:
-     #Khởi tạo peer với URL tracker. Các thuộc tính lưu thông tin peer, danh sách peer khác, tin nhắn theo channel.
+    #Khởi tạo peer với URL tracker. Các thuộc tính lưu thông tin peer, danh sách peer khác, tin nhắn theo channel.
     def __init__(self, tracker_url='http://localhost:9000'):
         self.tracker_url = tracker_url
         self.peer_id = None
@@ -26,11 +26,12 @@ class P2PChatPeer:
         self.channels = {}
         self.joined_channels = ['general']
         self.running = False
-       
-    # Khởi động peer: Tạo ID, lưu info, set running=True.
-    # Chạy 2 thread daemon (chạy ngầm, tự tắt khi chương trình kết thúc): heartbeat (gửi tín hiệu sống) và discovery (cập nhật danh sách peer). 
-    # Cuối cùng đăng ký với tracker.
+        
     def initialize(self, username, host, port):
+        # Khởi động peer: Tạo ID, lưu info, set running=True. 
+        # Chạy 2 thread daemon (chạy ngầm, tự tắt khi chương trình kết thúc): 
+        # heartbeat (gửi tín hiệu sống) và discovery (cập nhật danh sách peer). 
+        # Cuối cùng đăng ký với tracker.
         """Initialize peer with user info"""
         self.peer_id = str(uuid.uuid4())[:8]
         self.username = username
@@ -45,8 +46,7 @@ class P2PChatPeer:
         return self.register_to_tracker()
     
     def register_to_tracker(self):
-        #Gửi POST request đến tracker để đăng ký peer. 
-        # Nếu thành công (status 200), in thông báo và lấy danh sách peer.
+        # Gửi POST request đến tracker để đăng ký peer.
         """Register to centralized tracker"""
         try:
             response = requests.post(
@@ -58,16 +58,17 @@ class P2PChatPeer:
                     'port': self.port
                 },
                 timeout=5
-                )
+            )
+            #Nếu thành công (status 200), in thông báo và lấy danh sách peer.
             if response.status_code == 200:
-                print(f"Registered to tracker: {self.username}")
+                print(f"✅ Registered to tracker: {self.username}")
                 self.fetch_peer_list()
                 return True
             return False
         except Exception as e:
-            print(f"❌ Registration failed: {e}")
+            print(f"Registration failed: {e}")
             return False
-
+    
     def fetch_peer_list(self):
         # Lấy danh sách peer từ tracker qua GET request. Lọc bỏ peer của chính mình.
         """Fetch peer list from tracker"""
@@ -85,8 +86,8 @@ class P2PChatPeer:
         return []
     
     def send_to_peer_p2p(self, peer_info, channel, message):
+        # Gửi tin nhắn P2P trực tiếp đến một peer khác qua POST request đến endpoint /receive-message của peer đó.
         """Send message P2P directly to peer"""
-        #Gửi tin nhắn P2P trực tiếp đến một peer khác qua POST request đến endpoint /receive-message của peer đó.
         try:
             url = f"http://{peer_info['host']}:{peer_info['port']}/receive-message"
             response = requests.post(
@@ -104,10 +105,10 @@ class P2PChatPeer:
         except:
             return False
     
-    #Phát tán tin nhắn đến tất cả peer: Lưu tin nhắn local trước, 
-    # rồi lặp qua danh sách peer và gửi P2P nếu peer join channel đó.
-    # Đếm số thành công.
     def broadcast_message(self, channel, message):
+        #Phát tán tin nhắn đến tất cả peer:
+        # Lưu tin nhắn local trước, rồi lặp qua danh sách peer và gửi P2P nếu peer join channel đó.
+        # Đếm số thành công.
         """Broadcast message P2P to all peers"""
         # Save locally
         if channel not in self.channels:
@@ -179,101 +180,83 @@ class P2PChatPeer:
 # WEAPROUS APPLICATION
 # ============================================================
 
-# Create WeApRous app instance
+# Tạo instance app
 app = WeApRous()
 
-# Global peer instance
+# Tạo peer toàn cục
 peer = P2PChatPeer()
 
 
 # ============================================================
-# ROUTE HANDLERS
+# STATIC FILE ROUTES
 # ============================================================
 
 @app.route('/', methods=['GET'])
-def index(headers="", body=""):
+# Mỗi route mở file tương ứng, đọc nội dung, trả về string. Nếu file không tồn tại, trả về lỗi đơn giản.
+def index(request):
     """Serve login page"""
     try:
         with open('www/index.html', 'r', encoding='utf-8') as f:
             html_content = f.read()
-        return html_content
+        return Response(html_content, content_type='text/html')
     except FileNotFoundError:
-        return '<h1>Error: www/index.html not found</h1>'
+        return Response('<h1>Error: www/index.html not found</h1>', status=404)
 
 
 @app.route('/chat', methods=['GET'])
-def chat_page(headers="", body=""):
+def chat_page(request):
     """Serve chat page"""
     try:
         with open('www/chat.html', 'r', encoding='utf-8') as f:
             html_content = f.read()
-        return html_content
+        return Response(html_content, content_type='text/html')
     except FileNotFoundError:
-        return '<h1>Error: www/chat.html not found</h1>'
+        return Response('<h1>Error: www/chat.html not found</h1>', status=404)
 
 
-@app.route('/static/css/login.css', methods=['GET'])
-def serve_login_css(headers="", body=""):
-    """Serve login CSS"""
+@app.route('/static/css/<filename>', methods=['GET'])
+def serve_css(request, filename):
+    """Serve CSS files"""
     try:
-        with open('static/css/login.css', 'r', encoding='utf-8') as f:
-            return f.read()
+        with open(f'static/css/{filename}', 'r', encoding='utf-8') as f:
+            content = f.read()
+        return Response(content, content_type='text/css')
     except FileNotFoundError:
-        return '/* CSS not found */'
+        return Response('/* CSS not found */', status=404)
 
 
-@app.route('/static/css/chat.css', methods=['GET'])
-def serve_chat_css(headers="", body=""):
-    """Serve chat CSS"""
+@app.route('/static/js/<filename>', methods=['GET'])
+def serve_js(request, filename):
+    """Serve JavaScript files"""
     try:
-        with open('static/css/chat.css', 'r', encoding='utf-8') as f:
-            return f.read()
+        with open(f'static/js/{filename}', 'r', encoding='utf-8') as f:
+            content = f.read()
+        return Response(content, content_type='application/javascript')
     except FileNotFoundError:
-        return '/* CSS not found */'
+        return Response('// JS not found', status=404)
 
 
-@app.route('/static/js/login.js', methods=['GET'])
-def serve_login_js(headers="", body=""):
-    """Serve login JavaScript"""
-    try:
-        with open('static/js/login.js', 'r', encoding='utf-8') as f:
-            return f.read()
-    except FileNotFoundError:
-        return '// JS not found'
-
-
-@app.route('/static/js/chat.js', methods=['GET'])
-def serve_chat_js(headers="", body=""):
-    """Serve chat JavaScript"""
-    try:
-        with open('static/js/chat.js', 'r', encoding='utf-8') as f:
-            return f.read()
-    except FileNotFoundError:
-        return '// JS not found'
-
-
-# # ============================================================
-# # API ROUTES - Client-Server Phase
-# # ============================================================
+# ============================================================
+# API ROUTES - Client-Server Phase
+# ============================================================
 
 # @app.route('/login', methods=['PUT'])
-# def login_handler(headers="", body=""):
+# def login_handler(request):
 #     """
 #     API: User login and peer initialization
 #     Method: PUT (theo yêu cầu đề bài)
 #     """
 #     try:
-#         # Parse JSON from body
-#         data = json.loads(body) if body else {}
-        
+#         data = request.json
 #         username = data.get('username')
 #         port = data.get('port', 8001)
         
 #         if not username:
-#             return json.dumps({
-#                 'status': 'error',
-#                 'message': 'Username required'
-#             })
+#             return Response(
+#                 json.dumps({'status': 'error', 'message': 'Username required'}),
+#                 status=400,
+#                 content_type='application/json'
+#             )
         
 #         # Initialize peer
 #         success = peer.initialize(
@@ -283,40 +266,48 @@ def serve_chat_js(headers="", body=""):
 #         )
         
 #         if success:
-#             return json.dumps({
-#                 'status': 'success',
-#                 'message': 'Login successful',
-#                 'peer_id': peer.peer_id,
-#                 'username': username,
-#                 'port': port,
-#                 'online_peers': len(peer.peer_list)
-#             })
+#             return Response(
+#                 json.dumps({
+#                     'status': 'success',
+#                     'message': 'Login successful',
+#                     'peer_id': peer.peer_id,
+#                     'username': username,
+#                     'port': port,
+#                     'online_peers': len(peer.peer_list)
+#                 }),
+#                 content_type='application/json'
+#             )
 #         else:
-#             return json.dumps({
-#                 'status': 'error',
-#                 'message': 'Registration failed'
-#             })
+#             return Response(
+#                 json.dumps({'status': 'error', 'message': 'Registration failed'}),
+#                 status=500,
+#                 content_type='application/json'
+#             )
             
 #     except Exception as e:
-#         return json.dumps({
-#             'status': 'error',
-#             'message': str(e)
-#         })
+#         return Response(
+#             json.dumps({'status': 'error', 'message': str(e)}),
+#             status=500,
+#             content_type='application/json'
+#         )
 
 
 # @app.route('/get-list', methods=['GET'])
-# def get_peer_list(headers="", body=""):
+# def get_peer_list(request):
 #     """
 #     API: Get list of active peers
 #     Method: GET
 #     """
 #     peer.fetch_peer_list()
     
-#     return json.dumps({
-#         'status': 'success',
-#         'peers': peer.peer_list,
-#         'count': len(peer.peer_list)
-#     })
+#     return Response(
+#         json.dumps({
+#             'status': 'success',
+#             'peers': peer.peer_list,
+#             'count': len(peer.peer_list)
+#         }),
+#         content_type='application/json'
+#     )
 
 
 # ============================================================
@@ -324,136 +315,118 @@ def serve_chat_js(headers="", body=""):
 # ============================================================
 
 @app.route('/receive-message', methods=['POST'])
-def receive_message_handler(headers="", body=""):
+def receive_message_handler(request):
     """
     P2P API: Receive message from another peer
     Method: POST
     """
     try:
-        data = json.loads(body) if body else {}
+        data = request.json
         peer.receive_message(data)
         
-        return json.dumps({
-            'status': 'success',
-            'peer_id': peer.peer_id
-        })
+        return Response(
+            json.dumps({
+                'status': 'success',
+                'peer_id': peer.peer_id
+            }),
+            content_type='application/json'
+        )
     except Exception as e:
-        return json.dumps({
-            'status': 'error',
-            'message': str(e)
-        })
+        return Response(
+            json.dumps({'status': 'error', 'message': str(e)}),
+            status=500,
+            content_type='application/json'
+        )
 
 
 @app.route('/broadcast-message', methods=['POST'])
-def broadcast_message_handler(headers="", body=""):
+def broadcast_message_handler(request):
     """
     API: Broadcast message to all peers
     Method: POST
     """
     try:
-        data = json.loads(body) if body else {}
+        data = request.json
         channel = data.get('channel', 'general')
         message = data.get('message')
         
         if not message:
-            return json.dumps({
-                'status': 'error',
-                'message': 'Message required'
-            })
+            return Response(
+                json.dumps({'status': 'error', 'message': 'Message required'}),
+                status=400,
+                content_type='application/json'
+            )
         
         count = peer.broadcast_message(channel, message)
         
-        return json.dumps({
-            'status': 'success',
-            'sent_to': count,
-            'total_peers': len(peer.peer_list)
-        })
+        return Response(
+            json.dumps({
+                'status': 'success',
+                'sent_to': count,
+                'total_peers': len(peer.peer_list)
+            }),
+            content_type='application/json'
+        )
     except Exception as e:
-        return json.dumps({
-            'status': 'error',
-            'message': str(e)
-        })
+        return Response(
+            json.dumps({'status': 'error', 'message': str(e)}),
+            status=500,
+            content_type='application/json'
+        )
 
 
 @app.route('/get-messages/<channel>', methods=['GET'])
-def get_messages_handler(headers="", body=""):
+def get_messages_handler(request, channel):
     """
     API: Get messages from channel
     Method: GET
-    
-    Note: WeApRous không hỗ trợ URL parameters trực tiếp,
-    cần parse từ headers hoặc sử dụng query string
     """
-    # Extract channel from URL path
-    # Giả sử WeApRous truyền full path vào headers
-    channel = 'general'  # Default
-    
-    # Try to extract channel from path if available
-    if hasattr(headers, 'get'):
-        path = headers.get('path', '')
-        if '/get-messages/' in path:
-            channel = path.split('/get-messages/')[-1]
-    
     messages = peer.channels.get(channel, [])
     
-    return json.dumps({
-        'status': 'success',
-        'channel': channel,
-        'messages': messages,
-        'count': len(messages)
-    })
-
-
-# Tạo route riêng cho từng channel phổ biến
-@app.route('/get-messages/general', methods=['GET'])
-def get_messages_general(headers="", body=""):
-    messages = peer.channels.get('general', [])
-    return json.dumps({
-        'status': 'success',
-        'channel': 'general',
-        'messages': messages,
-        'count': len(messages)
-    })
-
-
-@app.route('/get-messages/random', methods=['GET'])
-def get_messages_random(headers="", body=""):
-    messages = peer.channels.get('random', [])
-    return json.dumps({
-        'status': 'success',
-        'channel': 'random',
-        'messages': messages,
-        'count': len(messages)
-    })
+    return Response(
+        json.dumps({
+            'status': 'success',
+            'channel': channel,
+            'messages': messages,
+            'count': len(messages)
+        }),
+        content_type='application/json'
+    )
 
 
 @app.route('/get-channels', methods=['GET'])
-def get_channels_handler(headers="", body=""):
+def get_channels_handler(request):
     """
     API: Get available channels
     Method: GET
     """
-    return json.dumps({
-        'status': 'success',
-        'channels': list(peer.channels.keys()),
-        'joined_channels': peer.joined_channels
-    })
+    return Response(
+        json.dumps({
+            'status': 'success',
+            'channels': list(peer.channels.keys()),
+            'joined_channels': peer.joined_channels
+        }),
+        content_type='application/json'
+    )
 
 
 @app.route('/status', methods=['GET'])
-def status_handler(headers="", body=""):
+def status_handler(request):
     """
     API: Get peer status
     Method: GET
     """
-    return json.dumps({
-        'peer_id': peer.peer_id,
-        'username': peer.username,
-        'status': 'online' if peer.running else 'offline',
-        'port': peer.port,
-        'channels': list(peer.channels.keys()),
-        'connected_peers': len(peer.peer_list)
-    })
+    return Response(
+        json.dumps({
+            'peer_id': peer.peer_id,
+            'username': peer.username,
+            'status': 'online' if peer.running else 'offline',
+            'port': peer.port,
+            'channels': list(peer.channels.keys()),
+            'connected_peers': len(peer.peer_list)
+        }),
+        content_type='application/json'
+    )
 
 
 # ============================================================
@@ -461,30 +434,21 @@ def status_handler(headers="", body=""):
 # ============================================================
 
 if __name__ == '__main__':
-    import sys
-    
-    # Get port from command line or use default
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8001
-    host = '0.0.0.0'
-    
     print("\n" + "="*70)
-    print("🚀 HYBRID P2P CHAT APPLICATION (WeApRous)")
+    print("HYBRID P2P CHAT APPLICATION (WeApRous)")
     print("="*70)
-    print(f"📍 Server: http://{host}:{port}")
-    print("📍 Tracker: http://localhost:9000 (must be running)")
-    print("\n📋 APIs:")
+    print("Server: http://0.0.0.0:8001")
+    print("Tracker: http://localhost:9000 (must be running)")
+    print("\nAPIs:")
     print("  [GET]   /              - Login page")
     print("  [GET]   /chat          - Chat page")
     print("  [PUT]   /login         - User login")
     print("  [GET]   /get-list      - Get peer list")
     print("  [POST]  /receive-message   - Receive P2P message")
     print("  [POST]  /broadcast-message - Broadcast message")
-    print("  [GET]   /get-messages/general - Get channel messages")
+    print("  [GET]   /get-messages/<channel> - Get channel messages")
     print("  [GET]   /status        - Peer status")
     print("="*70 + "\n")
     
-    # Configure WeApRous address
-    app.prepare_address(host, str(port))
-    
     # Start WeApRous server
-    app.run()
+    app.run(host='0.0.0.0', port=8001)
