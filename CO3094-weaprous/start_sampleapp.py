@@ -32,68 +32,63 @@ from daemon.weaprous import WeApRous
 
 PORT = 8000  # Default port
 
+peer_list = []
+
 app = WeApRous()
 
-active_peers = []
+@app.route('/register', methods=['POST'])
+def register_peer(headers, body):
+    """
+    Handle user login via POST request.
 
-@app.route('/submit-info', methods=['POST'])
-def handle_submit_info(headers, body):
-    global active_peers
-    print(f"[Tracker] Received /submit-info, body: {body}")
-    
+    This route simulates a login process and prints the provided headers and body
+    to the console.
+
+    :param headers (str): The request headers or user identifier.
+    :param body (str): The request body or login payload.
+    """
+    print(f"[Tracker] Received registration request, body: {body}")
     try:
-        # 1. Parse body 
-        peer_data = json.loads(body)
-        username = peer_data.get('username')
-        ip = peer_data.get('ip')
-        port = peer_data.get('port')
-
-        if not username or not ip or not port:
-            raise ValueError("'username', 'ip', and 'port' are required")
-
-        new_peer = {'username': username, 'ip': ip, 'port': int(port)}
-
-        # 2. Check and update (Tracker update)
-        found = False
-        for i, peer in enumerate(active_peers):
-            if peer['username'] == username:
-                active_peers[i] = new_peer
-                found = True
-                break
-        if not found:
-            active_peers.append(new_peer) 
-
-        print(f"[Tracker] Peer registered/updated: {new_peer}")
-        print(f"[Tracker] Current active peers: {active_peers}")
+        peer_info = json.loads(body)
+        if 'ip' not in peer_info or 'port' not in peer_info:
+             return {"error": "Invalid peer info. 'ip' and 'port' are required."}
+             
+        if peer_info not in peer_list:
+            peer_list.append(peer_info)
+            print(f"[Tracker] Registered new peer: {peer_info}")
+        else:
+            print(f"[Tracker] Peer already registered: {peer_info}")
+            
+        return {"status": "registered", "peers": peer_list}
         
-        # 3. Return response (status, body_string)
-        response_body = json.dumps({"status": "success", "message": f"{username} registered"})
-        return '200 OK', response_body
-
+    except json.JSONDecodeError:
+        print("[Tracker] Invalid JSON received for registration.")
+        return {"error": "Invalid JSON body"}
     except Exception as e:
-        print(f"[Tracker] Error /submit-info: {e}")
-        response_body = json.dumps({"status": "error", "message": str(e)})
-        return '400 Bad Request', response_body
+        print(f"[Tracker] Error processing registration: {e}")
+        return {"error": str(e)}
 
 @app.route('/get-list', methods=['GET'])
-def handle_get_list(headers, body):
-    global active_peers
-    print(f"[Tracker] Request /get-list. Returning {len(active_peers)} peers.")
-    
-    try:
-        # Return peer list as JSON
-        response_body = json.dumps({"status": "success", "peers": active_peers})
-        
-        # Return response (status, body_string)
-        return '200 OK', response_body
-    except Exception as e:
-        print(f"[Tracker] Error /get-list: {e}")
-        response_body = json.dumps({"status": "error", "message": str(e)})
-        return '500 Internal Server Error', response_body
+def get_peer_list(headers, body):
+    """
+    Handle greeting via PUT request.
+
+    This route prints a greeting message to the console using the provided headers
+    and body.
+
+    :param headers (str): The request headers or user identifier.
+    :param body (str): The request body or message payload.
+    """
+    print(f"[Tracker] Peer list requested. Sending {len(peer_list)} peers.")
+    return peer_list
 
 if __name__ == "__main__":
     # Parse command-line arguments to configure server IP and port
-    parser = argparse.ArgumentParser(prog='Backend', description='', epilog='Beckend daemon')
+    parser = argparse.ArgumentParser(
+        prog='TrackerApp', 
+        description='Tracker Server for P2P Chat', 
+        epilog='WeApRous daemon'
+    )
     parser.add_argument('--server-ip', default='0.0.0.0')
     parser.add_argument('--server-port', type=int, default=PORT)
  
@@ -102,5 +97,6 @@ if __name__ == "__main__":
     port = args.server_port
 
     # Prepare and launch the RESTful application
+    print(f"[Tracker] Starting Tracker server on {ip}:{port}")
     app.prepare_address(ip, port)
     app.run()

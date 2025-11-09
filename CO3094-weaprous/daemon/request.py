@@ -58,7 +58,7 @@ class Request():
         #: HTTP path
         self.path = None        
         # The cookies set used to create Cookie header
-        self.cookies = None
+        self.cookies = {}
         #: request body to send to the server.
         self.body = None
         #: Routes
@@ -69,13 +69,15 @@ class Request():
     def extract_request_line(self, request):
         try:
             lines = request.splitlines()
+            if not lines: 
+                return None, None, None
             first_line = lines[0]
             method, path, version = first_line.split()
 
             if path == '/':
                 path = '/index.html'
         except Exception:
-            return None, None
+            return None, None, None
 
         return method, path, version
              
@@ -87,14 +89,26 @@ class Request():
             if ': ' in line:
                 key, val = line.split(': ', 1)
                 headers[key.lower()] = val
+            elif not line: 
+                break
         return headers
 
     def prepare(self, request, routes=None):
         """Prepares the entire request with the given parameters."""
+        try:
+            header_part, self.body = request.split('\r\n\r\n', 1)
+        except ValueError:
+            header_part = request
+            self.body = None
 
         # Prepare the request line from the request header
-        self.method, self.path, self.version = self.extract_request_line(request)
-        print(f"[Request] {self.method} path {self.path} version {self.version}")
+        self.method, self.path, self.version = self.extract_request_line(header_part)
+        
+        if not self.method:
+            print("[Request] Invalid request line.")
+            return 
+
+        print("[Request] {} path {} version {}".format(self.method, self.path, self.version))
 
         #
         # @bksysnet Preapring the webapp hook with WeApRous instance
@@ -111,28 +125,23 @@ class Request():
             # ...
             #
 
-        self.headers = self.prepare_headers(request)
-        cookies = self.headers.get('cookie', '')
+        self.headers = self.prepare_headers(header_part)
+        cookies_str = self.headers.get('cookie', '')
             #
             #  TODO: implement the cookie function here
             #        by parsing the header            #
-
-        # Tách phần body ra khỏi request thô
-        try:
-            header_end_index = request.find('\r\n\r\n')
-            if header_end_index > 0:
-                self.body = request[header_end_index + 4:]
-            else:
-                self.body = ""
-        except Exception:
-            self.body = ""
-        # --- KẾT THÚC ---    
+        if cookies_str:
+            try:
+                self.cookies = dict(s.strip().split('=', 1) for s in cookies_str.split(';'))
+            except Exception as e:
+                print(f"[Request] Error parsing cookies: {e}")
+                self.cookies = {}    
 
         return
 
     def prepare_body(self, data, files, json=None):
-        self.prepare_content_length(self.body)
-        self.body = body
+        # self.prepare_content_length(self.body)
+        # self.body = body
         #
         # TODO prepare the request authentication
         #
@@ -142,6 +151,8 @@ class Request():
 
     def prepare_content_length(self, body):
         self.headers["Content-Length"] = "0"
+        if body:
+             self.headers["Content-Length"] = str(len(body))
         #
         # TODO prepare the request authentication
         #

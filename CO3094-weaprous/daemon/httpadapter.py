@@ -20,6 +20,12 @@ raw URL paths and RESTful route definitions, and integrates with
 Request and Response objects to handle client-server communication.
 """
 
+import json 
+try:
+    from urllib.parse import parse_qs 
+except ImportError:
+    from urlparse import parse_qs
+
 from .request import Request
 from .response import Response
 from .dictionary import CaseInsensitiveDict
@@ -104,45 +110,36 @@ class HttpAdapter:
 
         # Handle the request
         msg = conn.recv(1024).decode()
+        if not msg:
+            conn.close()
+            return
+             
         req.prepare(msg, routes)
-
-        response_to_send = None # Biến lưu trữ response cuối cùng
 
         # Handle request hook
         if req.hook:
-            print(f"[HttpAdapter] hook in route-path METHOD {req.method} PATH {req.path}")
+            print("[HttpAdapter] hook in route-path METHOD {} PATH {}".format(req.hook._route_path,req.hook._route_methods))
             #
             # TODO: handle for App hook here
             try:
-                status, body_content = req.hook(headers=req.headers, body=req.body)
+                response_data = req.hook(headers=req.headers, body=req.body)
                 
-                http_response = f"HTTP/1.1 {status}\r\n"
-                http_response += "Content-Type: application/json\r\n"
-                http_response += f"Content-Length: {len(body_content)}\r\n"
-                http_response += "Connection: close\r\n"
-                http_response += "\r\n"
-                http_response += body_content
+                response_body_str = json.dumps(response_data)
                 
-                response_to_send = http_response.encode('utf-8')
-
+                response = resp.build_json_response(req, response_body_str)
             except Exception as e:
-                print(f"[HttpAdapter] Error during hook execution: {e}")
-                error_body = '{"status": "error", "message": "Internal Server Error"}'
-                http_response = f"HTTP/1.1 500 Internal Server Error\r\n"
-                http_response += "Content-Type: application/json\r\n"
-                http_response += f"Content-Length: {len(error_body)}\r\n"
-                http_response += "Connection: close\r\n"
-                http_response += "\r\n"
-                http_response += error_body
-                response_to_send = http_response.encode('utf-8')
+                 print(f"[HttpAdapter] Error in hook: {e}")
+                 response = resp.build_notfound()
 
-        else:
-            print("[HttpAdapter] No hook, serving static file.")
-            response_to_send = resp.build_response(req)      
+            conn.sendall(response)
+            conn.close()
+            return     
             #
 
-        #print(response_to_send)
-        conn.sendall(response_to_send)
+        response = resp.build_response(req)
+
+        #print(response)
+        conn.sendall(response)
         conn.close()
 
     @property
@@ -155,12 +152,14 @@ class HttpAdapter:
         :rtype: cookies - A dictionary of cookie key-value pairs.
         """
         cookies = {}
-        for header in headers:
-            if header.startswith("Cookie:"):
-                cookie_str = header.split(":", 1)[1].strip()
-                for pair in cookie_str.split(";"):
+        cookie_header = req.headers.get("cookie", "") 
+        if cookie_header:
+            for pair in cookie_header.split(";"):
+                try:
                     key, value = pair.strip().split("=")
                     cookies[key] = value
+                except ValueError:
+                    pass
         return cookies
 
     def build_response(self, req, resp):
@@ -173,9 +172,10 @@ class HttpAdapter:
         response = Response()
 
         # Set encoding.
-        response.encoding = get_encoding_from_headers(response.headers)
+        response.encoding = "utf-8"
         response.raw = resp
-        response.reason = response.raw.reason
+        if hasattr(response.raw, 'reason'):
+             response.reason = response.raw.reason
 
         if isinstance(req.url, bytes):
             response.url = req.url.decode("utf-8")
@@ -183,7 +183,7 @@ class HttpAdapter:
             response.url = req.url
 
         # Add new cookies from the server.
-        response.cookies = extract_cookies(req)
+        response.cookies = self.extract_cookies(req, resp)
 
         # Give the Response some context.
         response.request = req
