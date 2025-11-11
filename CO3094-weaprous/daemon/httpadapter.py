@@ -94,7 +94,7 @@ class HttpAdapter:
         """
 
         # Connection handler.
-        self.conn = conn        
+        self.conn = conn
         # Connection address.
         self.connaddr = addr
         # Request handler
@@ -106,6 +106,60 @@ class HttpAdapter:
         msg = conn.recv(1024).decode()
         req.prepare(msg, routes)
 
+        # Task 1A: Handle POST /login - Authentication
+        if req.method == 'POST' and req.path == '/login':
+            print("[HttpAdapter] Processing login request")
+
+            # Parse form data from POST body
+            form_data = {}
+            if req.body:
+                for pair in req.body.split('&'):
+                    if '=' in pair:
+                        key, value = pair.split('=', 1)
+                        form_data[key] = value
+
+            username = form_data.get('username', '')
+            password = form_data.get('password', '')
+
+            print("[HttpAdapter] Login attempt - username: {}, password: {}".format(username, password))
+
+            # Validate credentials
+            if username == 'admin' and password == 'password':
+                print("[HttpAdapter] Login successful - setting auth cookie")
+                # Set auth cookie and serve index.html
+                resp.cookies['auth'] = 'true'
+                req.path = '/index.html'
+                response = resp.build_response(req)
+            else:
+                print("[HttpAdapter] Login failed - invalid credentials")
+                # Return 401 Unauthorized
+                response = resp.build_unauthorized()
+
+            conn.sendall(response)
+            conn.close()
+            return
+
+        # Task 1B: Handle GET / - Cookie-based Access Control
+        if req.method == 'GET' and (req.path == '/' or req.path == '/index.html'):
+            print("[HttpAdapter] Checking authentication for {}".format(req.path))
+
+            # Check for auth cookie
+            auth_cookie = req.cookies.get('auth', '')
+
+            if auth_cookie == 'true':
+                print("[HttpAdapter] User authenticated - serving index page")
+                # User is authenticated, serve index.html
+                req.path = '/index.html'
+                response = resp.build_response(req)
+            else:
+                print("[HttpAdapter] User not authenticated - returning 401")
+                # User is not authenticated, return 401 Unauthorized
+                response = resp.build_unauthorized()
+
+            conn.sendall(response)
+            conn.close()
+            return
+
         # Handle request hook
         if req.hook:
             print("[HttpAdapter] hook in route-path METHOD {} PATH {}".format(req.hook._route_path,req.hook._route_methods))
@@ -114,7 +168,7 @@ class HttpAdapter:
             # TODO: handle for App hook here
             #
 
-        # Build response
+        # Build response for other requests
         response = resp.build_response(req)
 
         #print(response)
