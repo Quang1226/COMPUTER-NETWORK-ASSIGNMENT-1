@@ -197,11 +197,19 @@ class Response():
         filepath = os.path.join(base_dir, path.lstrip('/'))
 
         print("[Response] serving the object at location {}".format(filepath))
-            #
-            #  TODO: implement the step of fetch the object file
-            #        store in the return value of content
-            #
-        return len(content), content
+
+        try:
+            with open(filepath, 'rb') as f:
+                content = f.read()
+            return len(content), content
+        except FileNotFoundError:
+            print("[Response] File not found: {}".format(filepath))
+            content = b"404 Not Found"
+            return len(content), content
+        except Exception as e:
+            print("[Response] Error reading file: {}".format(e))
+            content = b"500 Internal Server Error"
+            return len(content), content
 
 
     def build_response_header(self, request):
@@ -237,16 +245,18 @@ class Response():
                 "User-Agent": "{}".format(reqhdr.get("User-Agent", "Chrome/123.0.0.0")),
             }
 
-        # Header text alignment
-            #
-            #  TODO: implement the header building to create formated
-            #        header from the provied headers
-            #
-        #
-        # TODO prepare the request authentication
-        #
-	# self.auth = ...
-        return str(fmt_header).encode('utf-8')
+        # Header text alignment - build formatted HTTP header
+        fmt_header = "HTTP/1.1 {} {}\r\n".format(self.status_code, self.reason)
+        for key, value in headers.items():
+            fmt_header += "{}: {}\r\n".format(key, value)
+
+        # Add Set-Cookie header if cookies exist
+        for cookie_name, cookie_value in self.cookies.items():
+            fmt_header += "Set-Cookie: {}={}\r\n".format(cookie_name, cookie_value)
+
+        fmt_header += "\r\n"
+
+        return fmt_header.encode('utf-8')
 
 
     def build_notfound(self):
@@ -265,6 +275,26 @@ class Response():
                 "Connection: close\r\n"
                 "\r\n"
                 "404 Not Found"
+            ).encode('utf-8')
+
+
+    def build_unauthorized(self):
+        """
+        Constructs a standard 401 Unauthorized HTTP response.
+
+        :rtype bytes: Encoded 401 response.
+        """
+
+        unauthorized_body = "<html><body><h1>401 Unauthorized</h1><p>Authentication required. Please <a href='/login.html'>login</a>.</p></body></html>"
+
+        return (
+                "HTTP/1.1 401 Unauthorized\r\n"
+                "Content-Type: text/html\r\n"
+                "Content-Length: {}\r\n"
+                "Cache-Control: no-cache\r\n"
+                "Connection: close\r\n"
+                "\r\n"
+                "{}".format(len(unauthorized_body), unauthorized_body)
             ).encode('utf-8')
 
 
@@ -289,6 +319,8 @@ class Response():
             base_dir = self.prepare_content_type(mime_type = 'text/html')
         elif mime_type == 'text/css':
             base_dir = self.prepare_content_type(mime_type = 'text/css')
+        elif mime_type and mime_type.startswith('image/'):
+            base_dir = self.prepare_content_type(mime_type = mime_type)
         #
         # TODO: add support objects
         #
@@ -296,6 +328,11 @@ class Response():
             return self.build_notfound()
 
         c_len, self._content = self.build_content(path, base_dir)
+
+        # Set status code and reason for successful response
+        self.status_code = 200
+        self.reason = "OK"
+
         self._header = self.build_response_header(request)
 
         return self._header + self._content

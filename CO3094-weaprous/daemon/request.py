@@ -102,7 +102,7 @@ class Request():
         #
         # TODO manage the webapp hook in this mounting point
         #
-        
+
         if not routes == {}:
             self.routes = routes
             self.hook = routes.get((self.method, self.path))
@@ -112,10 +112,25 @@ class Request():
             #
 
         self.headers = self.prepare_headers(request)
-        cookies = self.headers.get('cookie', '')
-            #
-            #  TODO: implement the cookie function here
-            #        by parsing the header            #
+
+        # Parse cookies from the Cookie header
+        cookie_str = self.headers.get('cookie', '')
+        self.cookies = {}
+        if cookie_str:
+            for pair in cookie_str.split(';'):
+                pair = pair.strip()
+                if '=' in pair:
+                    key, value = pair.split('=', 1)
+                    self.cookies[key.strip()] = value.strip()
+
+        # Parse POST body if present
+        if self.method == 'POST':
+            parts = request.split('\r\n\r\n', 1)
+            if len(parts) > 1:
+                self.body = parts[1]
+                print("[Request] POST body: {}".format(self.body))
+            else:
+                self.body = ''
 
         return
 
