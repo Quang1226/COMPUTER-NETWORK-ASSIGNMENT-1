@@ -1,12 +1,174 @@
 # sampleApp.py
 import sys
 import os
-from daemon.weaprous import WeApRous
-import requests     # Gửi HTTP request (đăng ký tracker, gửi P2P).
+import requests    # Gửi HTTP request (đăng ký tracker, gửi P2P).
 import threading    # Chạy thread nền (heartbeat, discovery).
 import time         # Delay (sleep).
 import uuid         # Tạo UUID cho peer.
 import json         # Parse/encode dữ liệu JSON từ body request.
+import socket 
+#from daemon.weaprous import WeApRous
+
+# ============================================================
+# WeApRous CLASS
+# ============================================================
+
+class WeApRous:
+    def __init__(self):
+        """Initialize a new WeApRous instance."""
+        self.routes = {}
+        self.ip = None
+        self.port = None
+        self.server_socket = None
+
+    def prepare_address(self, ip, port):
+        """Configure the IP address and port for the backend server."""
+        self.ip = ip
+        self.port = port
+
+    def route(self, path, methods=['GET']):
+        """Decorator to register a route handler."""
+        def decorator(func):
+            for method in methods:
+                key = (method.upper(), path)
+                self.routes[key] = func
+            return func
+        return decorator
+
+    def find_route_handler(self, method, path):
+        """Find the appropriate handler for the given method and path."""
+        # Kiểm tra exact match trước
+        key = (method.upper(), path)
+        if key in self.routes:
+            return self.routes[key]
+        
+        # Kiểm tra các route có thể match (cho các route có parameter)
+        for (route_method, route_path), handler in self.routes.items():
+            if route_method == method.upper():
+                # Simple path matching - có thể cải tiến sau
+                if path.startswith(route_path + '/') or path == route_path:
+                    return handler
+        return None
+
+    def handle_request(self, client_socket, client_address):
+        """Handle a single client request."""
+        try:
+            # Nhận request từ client
+            request_data = client_socket.recv(1024).decode('utf-8')
+            if not request_data:
+                return
+
+            # Parse request cơ bản
+            lines = request_data.splitlines()
+            if not lines:
+                return
+
+            # Parse request line
+            request_line = lines[0]
+            parts = request_line.split()
+            if len(parts) < 3:
+                return
+
+            method = parts[0]
+            path = parts[1]
+            
+            # Parse headers cơ bản
+            headers = {}
+            body = ""
+            body_started = False
+            
+            for line in lines[1:]:
+                if not line.strip():  # Empty line indicates start of body
+                    body_started = True
+                    continue
+                if not body_started:
+                    if ':' in line:
+                        key, value = line.split(':', 1)
+                        headers[key.strip()] = value.strip()
+                else:
+                    body += line
+
+            # Tìm handler phù hợp
+            handler = self.find_route_handler(method, path)
+            if handler:
+                try:
+                    # Gọi handler với headers và body
+                    result = handler(headers=headers, body=body)
+                    
+                    # Tạo response
+                    if isinstance(result, dict):
+                        response_body = json.dumps(result)
+                        content_type = 'application/json'
+                    else:
+                        response_body = str(result)
+                        content_type = 'text/html'
+                    
+                    response = f"""HTTP/1.1 200 OK
+Content-Type: {content_type}
+Content-Length: {len(response_body)}
+Connection: close
+
+{response_body}"""
+                    
+                except Exception as e:
+                    # Handler error
+                    error_msg = f"Error in handler: {str(e)}"
+                    response = f"""HTTP/1.1 500 Internal Server Error
+Content-Type: text/plain
+Content-Length: {len(error_msg)}
+Connection: close
+
+{error_msg}"""
+            else:
+                # Route not found
+                error_msg = f"Route {method} {path} not found"
+                response = f"""HTTP/1.1 404 Not Found
+Content-Type: text/plain
+Content-Length: {len(error_msg)}
+Connection: close
+
+{error_msg}"""
+
+            # Gửi response
+            client_socket.send(response.encode('utf-8'))
+            
+        except Exception as e:
+            print(f"Error handling request: {e}")
+        finally:
+            client_socket.close()
+
+    def run(self):
+        """Start the backend server and begin handling requests."""
+        if not self.ip or not self.port:
+            raise ValueError("IP and port must be configured before running")
+        
+        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        
+        try:
+            self.server_socket.bind((self.ip, self.port))
+            self.server_socket.listen(5)
+            
+            print(f"🚀 WeApRous server running on {self.ip}:{self.port}")
+            print(f"📋 Registered routes: {list(self.routes.keys())}")
+            
+            while True:
+                client_socket, client_address = self.server_socket.accept()
+                # Xử lý mỗi request trong thread riêng
+                client_thread = threading.Thread(
+                    target=self.handle_request, 
+                    args=(client_socket, client_address)
+                )
+                client_thread.daemon = True
+                client_thread.start()
+                
+        except KeyboardInterrupt:
+            print("\n🛑 Server stopped by user")
+        except Exception as e:
+            print(f"❌ Server error: {e}")
+        finally:
+            if self.server_socket:
+                self.server_socket.close()
 
 # ============================================================
 # P2P PEER CLASS
