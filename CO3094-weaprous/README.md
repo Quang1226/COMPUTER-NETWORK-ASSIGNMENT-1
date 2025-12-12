@@ -6,13 +6,31 @@ Bài tập Computer Network - Assignment 1
 - **Task 1B:** Cookie-based Access Control (GET /)
 
 ## 🚀 Cách chạy
+
+### Chạy trên local (1 máy)
 ```bash
-cd c:\Users\Admin\Documents\MMT\COMPUTER-NETWORK-ASSIGNMENT-1\CO3094-weaprous
+cd CO3094-weaprous
 python start_backend.py --server-ip 127.0.0.1 --server-port 9000
 ```
-
 Mở browser: `http://127.0.0.1:9000/`
-Login: **admin** / **password**
+
+### Chạy trên mạng (2 máy vật lý khác nhau)
+```bash
+# Máy Server
+cd CO3094-weaprous
+python start_backend.py --server-ip 0.0.0.0 --server-port 9000
+
+# Máy Client - mở browser
+http://<IP_SERVER>:9000/
+```
+
+**Login:** username: `admin` / password: `password`
+
+**Lưu ý:** Cần mở port 9000 trong firewall:
+```bash
+# Windows
+netsh advfirewall firewall add rule name="Backend Port 9000" dir=in action=allow protocol=TCP localport=9000
+```
 
 ## 📄 Tài liệu
 
